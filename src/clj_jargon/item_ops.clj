@@ -79,28 +79,39 @@
      :admin-users (optional) - List of users that must retain ownership on the file/dir being moved.
      :user (optional) - The username of the user performing the move.
      :skip-source-perms? (optional) - Boolean the tells move to skip ensuring that permissions for
-                                      the admin users are correct."
-  [cm source dest & {:keys [admin-users user skip-source-perms?]
+                                      the admin users are correct.
+     :update-fn (optional) - function of two arguments (the source path and an action (keyword)))
+                             to call to update the caller on the progress of the move"
+  [cm source dest & {:keys [admin-users user skip-source-perms? update-fn]
                      :or   {admin-users #{}
-                            skip-source-perms? false}}]
+                            skip-source-perms? false
+                            update-fn (fn [_ _])}}]
+  (update-fn source :begin)
   (validate-path-lengths source)
   (validate-path-lengths dest)
+  (update-fn source :validated-path-lengths)
   (let [^IRODSFileSystemAO fileSystemAO (:fileSystemAO cm)
                            src          (info/file cm source)
                            dst          (info/file cm dest)]
     (if (info/is-file? cm source)
       (.renameFile fileSystemAO src dst)
       (.renameDirectory fileSystemAO src dst))
-    (fix-perms cm src dst user admin-users skip-source-perms?)))
+    (update-fn source :did-rename)
+    (fix-perms cm src dst user admin-users skip-source-perms?)
+    (update-fn source :end)))
 
 (defn move-all
-  [cm sources dest & {:keys [admin-users user]
-                      :or {admin-users #{}}}]
+  [cm sources dest & {:keys [admin-users user update-fn]
+                      :or {admin-users #{}
+                           update-fn (fn [_ _])}}]
+  (update-fn "several paths" :begin)
   (doseq [s sources] (validate-path-lengths (ft/path-join dest (ft/basename s))))
+  (update-fn "several paths" :validated-path-lengths)
   (dorun
    (map
-    #(move cm %1 (ft/path-join dest (ft/basename %1)) :user user :admin-users admin-users)
-    sources)))
+    #(move cm %1 (ft/path-join dest (ft/basename %1)) :user user :admin-users admin-users :update-fn update-fn)
+    sources))
+  (update-fn "several paths" :end))
 
 
 (defn output-stream
