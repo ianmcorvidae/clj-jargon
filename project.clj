@@ -21,7 +21,9 @@
                                [org.slf4j/slf4j-log4j12]]]
                  [slingshot "0.12.2"]
                  [org.cyverse/clojure-commons "2.8.1"]]
-  :repositories [["dice.repository"
+  :repositories [["cyverse-de"
+                  {:url "https://raw.github.com/cyverse-de/mvn/master/releases"}]
+                 ["dice.repository"
                   {:url "https://raw.github.com/DICE-UNC/DICE-Maven/master/releases"}]
                  ["renci-snapshot.repository"
                   {:url "https://ci-dev.renci.org/nexus/content/repositories/renci-snapshot/"}]])
