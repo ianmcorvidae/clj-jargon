@@ -253,7 +253,7 @@
       :file (mapv perm-user->map (ll/user-dataobject-perms cm path'))
       :dir  (mapv perm-user->map (ll/user-collection-perms cm path')))))
 
-(defn set-dataobj-perms
+(defn- set-dataobj-perms-admin
   [{^DataObjectAO dataobj :dataObjectAO zone :zone} user fpath read? write? own?]
   (validate-path-lengths fpath)
 
@@ -263,7 +263,23 @@
     write? (.setAccessPermissionWriteInAdminMode dataobj zone fpath user)
     read?  (.setAccessPermissionReadInAdminMode dataobj zone fpath user)))
 
-(defn set-coll-perms
+(defn- set-dataobj-perms-proxied
+  [{^DataObjectAO dataobj :dataObjectAO zone :zone} user fpath read? write? own?]
+  (validate-path-lengths fpath)
+
+  (cond
+    own?   (.setAccessPermissionOwn dataobj zone fpath user)
+    write? (.setAccessPermissionWrite dataobj zone fpath user)
+    read?  (.setAccessPermissionRead dataobj zone fpath user)
+    true   (.removeAccessPermissionsForUser dataobj zone fpath user)))
+
+(defn set-dataobj-perms
+  [{^DataObjectAO dataobj :dataObjectAO zone :zone :as cm} user fpath read? write? own?]
+  (if (proxied? cm)
+    (set-dataobj-perms-proxied cm user fpath read? write? own?)
+    (set-dataobj-perms-admin cm user fpath read? write? own?)))
+
+(defn- set-coll-perms-admin
   [{^CollectionAO coll :collectionAO zone :zone} user fpath read? write? own? recursive?]
   (validate-path-lengths fpath)
   (.removeAccessPermissionForUserAsAdmin coll zone fpath user recursive?)
@@ -272,6 +288,22 @@
     own?   (.setAccessPermissionOwnAsAdmin coll zone fpath user recursive?)
     write? (.setAccessPermissionWriteAsAdmin coll zone fpath user recursive?)
     read?  (.setAccessPermissionReadAsAdmin coll zone fpath user recursive?)))
+
+(defn- set-coll-perms-proxied
+  [{^CollectionAO coll :collectionAO zone :zone} user fpath read? write? own? recursive?]
+  (validate-path-lengths fpath)
+
+  (cond
+    own?   (.setAccessPermissionOwn coll zone fpath user recursive?)
+    write? (.setAccessPermissionWrite coll zone fpath user recursive?)
+    read?  (.setAccessPermissionRead coll zone fpath user recursive?)
+    true   (.removeAccessPermissionForUser coll zone fpath user recursive?)))
+
+(defn set-coll-perms
+  [{^CollectionAO coll :collectionAO zone :zone :as cm} user fpath read? write? own? recursive?]
+  (if (proxied? cm)
+    (set-coll-perms-proxied cm user fpath read? write? own? recursive?)
+    (set-coll-perms-admin cm user fpath read? write? own? recursive?)))
 
 (defn set-permissions
   ([cm user fpath read? write? own?]
@@ -396,6 +428,8 @@
       paths)))
 
 (defn process-perms
+  "Fetches the permissions on `path`, remove anything relating to admin users
+  or `user` or the context-map user, then map `f` over the permissions"
   [f cm path user admin-users]
   (->> (list-user-perms cm path)
     (log-last)
