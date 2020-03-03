@@ -44,4 +44,6 @@
 (defn proxied?
   "Returns true if this context map is using a proxied (client) user"
   [{:keys [^IRODSAccount irodsAccount]}]
-  (.proxied irodsAccount))
+  (cond (not (= (.getUserName irodsAccount) (.getProxyName irodsAccount))) true
+        (not (= (.getZone irodsAccount) (.getProxyZone irodsAccount))) true
+        :else false))
