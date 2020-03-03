@@ -271,7 +271,7 @@
     own?   (.setAccessPermissionOwn dataobj zone fpath user)
     write? (.setAccessPermissionWrite dataobj zone fpath user)
     read?  (.setAccessPermissionRead dataobj zone fpath user)
-    true   (.removeAccessPermissionsForUser dataobj zone fpath user)))
+    :else  (.removeAccessPermissionsForUser dataobj zone fpath user)))
 
 (defn set-dataobj-perms
   [{^DataObjectAO dataobj :dataObjectAO zone :zone :as cm} user fpath read? write? own?]
@@ -297,7 +297,7 @@
     own?   (.setAccessPermissionOwn coll zone fpath user recursive?)
     write? (.setAccessPermissionWrite coll zone fpath user recursive?)
     read?  (.setAccessPermissionRead coll zone fpath user recursive?)
-    true   (.removeAccessPermissionForUser coll zone fpath user recursive?)))
+    :else  (.removeAccessPermissionForUser coll zone fpath user recursive?)))
 
 (defn set-coll-perms
   [{^CollectionAO coll :collectionAO zone :zone :as cm} user fpath read? write? own? recursive?]
