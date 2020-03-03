@@ -1,7 +1,8 @@
 (ns clj-jargon.users
   (:use [clj-jargon.validations]
         [clj-jargon.gen-query])
-  (:import [org.irods.jargon.core.exception DataNotFoundException]
+  (:import [org.irods.jargon.core.connection IRODSAccount]
+           [org.irods.jargon.core.exception DataNotFoundException]
            [org.irods.jargon.core.query RodsGenQueryEnum]
            [org.irods.jargon.core.pub UserGroupAO
                                       UserAO]
@@ -39,3 +40,8 @@
       (.findByName user-ao user)
       true)
     (catch DataNotFoundException d false)))
+
+(defn proxied?
+  "Returns true if this context map is using a proxied (client) user"
+  [{:keys [^IRODSAccount irodsAccount]}]
+  (.proxied irodsAccount))
