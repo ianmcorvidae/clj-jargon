@@ -257,11 +257,11 @@
   [{^DataObjectAO dataobj :dataObjectAO zone :zone} user fpath read? write? own?]
   (validate-path-lengths fpath)
 
-  (.removeAccessPermissionsForUserInAdminMode dataobj zone fpath user)
   (cond
     own?   (.setAccessPermissionOwnInAdminMode dataobj zone fpath user)
     write? (.setAccessPermissionWriteInAdminMode dataobj zone fpath user)
-    read?  (.setAccessPermissionReadInAdminMode dataobj zone fpath user)))
+    read?  (.setAccessPermissionReadInAdminMode dataobj zone fpath user)
+    :else  (.removeAccessPermissionsForUserInAdminMode dataobj zone fpath user)))
 
 (defn- set-dataobj-perms-proxied
   [{^DataObjectAO dataobj :dataObjectAO zone :zone} user fpath read? write? own?]
@@ -282,12 +282,12 @@
 (defn- set-coll-perms-admin
   [{^CollectionAO coll :collectionAO zone :zone} user fpath read? write? own? recursive?]
   (validate-path-lengths fpath)
-  (.removeAccessPermissionForUserAsAdmin coll zone fpath user recursive?)
 
   (cond
     own?   (.setAccessPermissionOwnAsAdmin coll zone fpath user recursive?)
     write? (.setAccessPermissionWriteAsAdmin coll zone fpath user recursive?)
-    read?  (.setAccessPermissionReadAsAdmin coll zone fpath user recursive?)))
+    read?  (.setAccessPermissionReadAsAdmin coll zone fpath user recursive?)
+    :else  (.removeAccessPermissionForUserAsAdmin coll zone fpath user recursive?)))
 
 (defn- set-coll-perms-proxied
   [{^CollectionAO coll :collectionAO zone :zone} user fpath read? write? own? recursive?]
