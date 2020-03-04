@@ -253,25 +253,57 @@
       :file (mapv perm-user->map (ll/user-dataobject-perms cm path'))
       :dir  (mapv perm-user->map (ll/user-collection-perms cm path')))))
 
-(defn set-dataobj-perms
+(defn- set-dataobj-perms-admin
   [{^DataObjectAO dataobj :dataObjectAO zone :zone} user fpath read? write? own?]
   (validate-path-lengths fpath)
 
-  (.removeAccessPermissionsForUserInAdminMode dataobj zone fpath user)
   (cond
     own?   (.setAccessPermissionOwnInAdminMode dataobj zone fpath user)
     write? (.setAccessPermissionWriteInAdminMode dataobj zone fpath user)
-    read?  (.setAccessPermissionReadInAdminMode dataobj zone fpath user)))
+    read?  (.setAccessPermissionReadInAdminMode dataobj zone fpath user)
+    :else  (.removeAccessPermissionsForUserInAdminMode dataobj zone fpath user)))
 
-(defn set-coll-perms
+(defn- set-dataobj-perms-proxied
+  [{^DataObjectAO dataobj :dataObjectAO zone :zone} user fpath read? write? own?]
+  (validate-path-lengths fpath)
+
+  (cond
+    own?   (.setAccessPermissionOwn dataobj zone fpath user)
+    write? (.setAccessPermissionWrite dataobj zone fpath user)
+    read?  (.setAccessPermissionRead dataobj zone fpath user)
+    :else  (.removeAccessPermissionsForUser dataobj zone fpath user)))
+
+(defn set-dataobj-perms
+  [{^DataObjectAO dataobj :dataObjectAO zone :zone :as cm} user fpath read? write? own?]
+  (if (proxied? cm)
+    (set-dataobj-perms-proxied cm user fpath read? write? own?)
+    (set-dataobj-perms-admin cm user fpath read? write? own?)))
+
+(defn- set-coll-perms-admin
   [{^CollectionAO coll :collectionAO zone :zone} user fpath read? write? own? recursive?]
   (validate-path-lengths fpath)
-  (.removeAccessPermissionForUserAsAdmin coll zone fpath user recursive?)
 
   (cond
     own?   (.setAccessPermissionOwnAsAdmin coll zone fpath user recursive?)
     write? (.setAccessPermissionWriteAsAdmin coll zone fpath user recursive?)
-    read?  (.setAccessPermissionReadAsAdmin coll zone fpath user recursive?)))
+    read?  (.setAccessPermissionReadAsAdmin coll zone fpath user recursive?)
+    :else  (.removeAccessPermissionForUserAsAdmin coll zone fpath user recursive?)))
+
+(defn- set-coll-perms-proxied
+  [{^CollectionAO coll :collectionAO zone :zone} user fpath read? write? own? recursive?]
+  (validate-path-lengths fpath)
+
+  (cond
+    own?   (.setAccessPermissionOwn coll zone fpath user recursive?)
+    write? (.setAccessPermissionWrite coll zone fpath user recursive?)
+    read?  (.setAccessPermissionRead coll zone fpath user recursive?)
+    :else  (.removeAccessPermissionForUser coll zone fpath user recursive?)))
+
+(defn set-coll-perms
+  [{^CollectionAO coll :collectionAO zone :zone :as cm} user fpath read? write? own? recursive?]
+  (if (proxied? cm)
+    (set-coll-perms-proxied cm user fpath read? write? own? recursive?)
+    (set-coll-perms-admin cm user fpath read? write? own? recursive?)))
 
 (defn set-permissions
   ([cm user fpath read? write? own?]
@@ -291,6 +323,16 @@
            write?  (or own? (= :write permission))
            read?   (or write? (= :read permission))]
       (set-permissions cm user fpath read? write? own? recursive?))))
+
+(defn remove-permissions
+  "Remove permissions, recursively where applicable"
+  [cm user fpath]
+  (set-permissions cm user fpath false false false true))
+
+(defn remove-access-permissions
+  "Remove permissions, non-recursively where applicable"
+  [cm user abs-path]
+  (set-permissions cm user abs-path false false false false))
 
 (defn one-user-to-rule-them-all?
   [{^CollectionAndDataObjectListAndSearchAO lister :lister :as cm} user]
@@ -396,6 +438,8 @@
       paths)))
 
 (defn process-perms
+  "Fetches the permissions on `path`, remove anything relating to admin users
+  or `user` or the context-map user, then map `f` over the permissions"
   [f cm path user admin-users]
   (->> (list-user-perms cm path)
     (log-last)
@@ -552,28 +596,6 @@
     max-perm
     fmt-perm))
 
-(defn remove-permissions
-  [{^DataObjectAO data-ao :dataObjectAO
-    ^CollectionAO collection-ao :collectionAO
-    zone :zone
-    :as cm} user fpath]
-  (validate-path-lengths fpath)
-  (case (item/object-type cm fpath)
-   :file
-    (.removeAccessPermissionsForUserInAdminMode
-     data-ao
-     zone
-     fpath
-     user)
-
-   :dir 
-    (.removeAccessPermissionForUserAsAdmin
-     collection-ao
-     zone
-     fpath
-     user
-     true)))
-
 (defn owns?
   [cm user fpath]
   (validate-path-lengths fpath)
@@ -581,28 +603,6 @@
     :file (owns-dataobject? cm user fpath)
     :dir  (owns-collection? cm user fpath)
     false))
-
-(defn remove-access-permissions
-  [{^DataObjectAO data-ao :dataObjectAO
-    ^CollectionAO collection-ao :collectionAO
-    zone :zone
-    :as cm} user abs-path]
-  (validate-path-lengths abs-path)
-  (case (item/object-type cm abs-path)
-   :file
-    (.removeAccessPermissionsForUserInAdminMode
-     data-ao
-     zone
-     abs-path
-     user)
-
-   :dir
-    (.removeAccessPermissionForUserAsAdmin
-     collection-ao
-     zone
-     abs-path
-     user
-     false)))
 
 (defn removed-owners
   [curr-user-perms set-of-new-owners]
