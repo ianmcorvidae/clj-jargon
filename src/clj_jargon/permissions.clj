@@ -98,25 +98,40 @@
      :write (contains? #{write-perm own-perm} perms)
      :own   (contains? #{own-perm} perms)}))
 
+(defn- mcat
+  "Reimplementation of mapcat that doesn't break laziness. See http://clojurian.blogspot.com/2012/11/beware-of-mapcat.html"
+  [f coll]
+  (lazy-seq (if (not-empty coll) (concat (f (first coll)) (mcat f (rest coll))))))
+
+(defn- user-collection-perms*
+  [cm user coll-path escape-hatch]
+  (validate-path-lengths coll-path)
+  (->> (concat [user] (lazy-seq (user-groups cm user)))
+       (mcat #(collection-perms-rs cm % coll-path))
+       (map (fn [^IRODSQueryResultRow rs] (.getColumnsAsList rs)))
+       (map #(FilePermissionEnum/valueOf (Integer/parseInt (first %))))
+       (take-while escape-hatch)
+       (doall)))
+
 (defn- user-collection-perms
   [cm user coll-path]
   (validate-path-lengths coll-path)
-  (->> (conj (set (user-groups cm user)) user)
-       (map #(collection-perms-rs cm % coll-path))
-       (apply concat)
+  (set (user-collection-perms* cm user coll-path (constantly true))))
+
+(defn- user-dataobject-perms*
+  [cm user data-path escape-hatch]
+  (validate-path-lengths data-path)
+  (->> (concat [(username->id cm user)] (lazy-seq (user-group-ids cm user)))
+       (mcat #(dataobject-perms-rs cm % data-path))
        (map (fn [^IRODSQueryResultRow rs] (.getColumnsAsList rs)))
        (map #(FilePermissionEnum/valueOf (Integer/parseInt (first %))))
-       (set)))
+       (take-while escape-hatch)
+       (doall)))
 
 (defn- user-dataobject-perms
   [cm user data-path]
   (validate-path-lengths data-path)
-  (->> (conj (set (user-group-ids cm user)) (username->id cm user))
-       (map #(dataobject-perms-rs cm % data-path))
-       (apply concat)
-       (map (fn [^IRODSQueryResultRow rs] (.getColumnsAsList rs)))
-       (map #(FilePermissionEnum/valueOf (Integer/parseInt (first %))))
-       (set)))
+  (set (user-dataobject-perms* cm user data-path (constantly true))))
 
 (defn dataobject-perm-map
   "Uses (user-dataobject-perms) to grab the 'raw' permissions for
@@ -238,18 +253,18 @@
    :permission (fmt-perm perm-id)})
 
 (defn list-user-perms
-  [cm abs-path]
+  [cm abs-path & {:keys [known-type] :or {known-type nil}}]
   (let [path' (ft/rm-last-slash abs-path)]
     (validate-path-lengths path')
-    (case (item/object-type cm path')
+    (case (or known-type (item/object-type cm path'))
       :file (mapv perm-map (ll/user-dataobject-perms cm path'))
       :dir  (mapv perm-map (ll/user-collection-perms cm path')))))
 
 (defn list-user-perm
-  [cm abs-path]
+  [cm abs-path & {:keys [known-type] :or {known-type nil}}]
   (let [path' (ft/rm-last-slash abs-path)]
     (validate-path-lengths path')
-    (case (item/object-type cm path')
+    (case (or known-type (item/object-type cm path'))
       :file (mapv perm-user->map (ll/user-dataobject-perms cm path'))
       :dir  (mapv perm-user->map (ll/user-collection-perms cm path')))))
 
@@ -350,9 +365,9 @@
   [{^DataObjectAO data-ao :dataObjectAO
     ^CollectionAO collection-ao :collectionAO
     zone :zone
-    :as cm} path owner]
+    :as cm} path owner & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths path)
-  (case (item/object-type cm path)
+  (case (or known-type (item/object-type cm path))
    :file (.setAccessPermissionOwn data-ao zone path owner)
 
    :dir  (.setAccessPermissionOwn collection-ao zone path owner true)))
@@ -397,11 +412,11 @@
       cm - The iRODS context map
       user - String containign a username.
       path - String containing an absolute path for something in iRODS."
-  [cm user path]
+  [cm user path & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths path)
   (if-not (user-exists? cm user)
     false
-    (case (item/object-type cm path)
+    (case (or known-type (item/object-type cm path))
       :dir  (collection-writeable? cm user (ft/rm-last-slash path))
       :file (dataobject-writeable? cm user (ft/rm-last-slash path))
       false)))
@@ -413,11 +428,11 @@
       cm - The iRODS context map
       user - String containing a username.
       path - String containing an path for something in iRODS."
-  [cm user path]
+  [cm user path & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths path)
   (if-not (user-exists? cm user)
     false
-    (case (item/object-type cm path)
+    (case (or known-type (item/object-type cm path))
       :dir  (collection-readable? cm user (ft/rm-last-slash path))
       :file (dataobject-readable? cm user (ft/rm-last-slash path))
       false)))
@@ -570,14 +585,42 @@
        cm (.getPath src) (.getPath dst) user admin-users skip-source-perms?))))
 
 (defn permissions
-  [cm user fpath]
+  [cm user fpath & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths fpath)
-  (case (item/object-type cm fpath)
+  (case (or known-type (item/object-type cm fpath))
     :dir  (collection-perm-map cm user fpath)
     :file (dataobject-perm-map cm user fpath)
     {:read false
      :write false
      :own false}))
+
+(defn- larger-perm
+  [perm1 perm2]
+  (cond
+    (nil? perm1)
+    perm2
+
+    (nil? perm2)
+    perm1
+
+    (> (perm-order-map perm1) (perm-order-map perm2))
+    perm1
+
+    (> (perm-order-map perm2) (perm-order-map perm1))
+    perm2
+
+    :else
+    perm1))
+
+(defn- check-more-perms?
+  [max-seen]
+  (fn [perm]
+    (log/info perm)
+    (let [old @max-seen]
+      (if
+        (= old own-perm)
+        false
+        (do (swap! max-seen larger-perm perm) true)))))
 
 (defn permission-for
   "Determines a given user's permission for a given collection or data object.
@@ -589,17 +632,18 @@
 
    Returns:
      It returns the aggregated permission."
-  [cm user fpath]
-  (-> (case (item/object-type cm fpath)
-        :dir  (user-collection-perms cm user fpath)
-        :file (user-dataobject-perms cm user fpath))
-    max-perm
-    fmt-perm))
+  [cm user fpath & {:keys [known-type] :or {known-type nil}}]
+  (let [max-seen (atom nil)]
+    (-> (case (or known-type (item/object-type cm fpath))
+          :dir  (set (user-collection-perms* cm user fpath (check-more-perms? max-seen)))
+          :file (set (user-dataobject-perms* cm user fpath (check-more-perms? max-seen))))
+      max-perm
+      fmt-perm)))
 
 (defn owns?
-  [cm user fpath]
+  [cm user fpath & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths fpath)
-  (case (item/object-type cm fpath)
+  (case (or known-type (item/object-type cm fpath))
     :file (owns-dataobject? cm user fpath)
     :dir  (owns-collection? cm user fpath)
     false))
