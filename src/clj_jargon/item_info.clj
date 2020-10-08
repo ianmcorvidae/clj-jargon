@@ -5,6 +5,7 @@
                                              Collection
                                              DataObject
                                              Quota]
+           [org.irods.jargon.core.exception FileNotFoundException]
            [org.irods.jargon.core.query CollectionAndDataObjectListingEntry$ObjectType]
            [org.irods.jargon.core.pub IRODSFileSystemAO
                                       DataObjectAO
@@ -15,6 +16,7 @@
 
 (def collection-type CollectionAndDataObjectListingEntry$ObjectType/COLLECTION)
 (def dataobject-type CollectionAndDataObjectListingEntry$ObjectType/DATA_OBJECT)
+(def unknown-type CollectionAndDataObjectListingEntry$ObjectType/UNKNOWN)
 
 
 (defn ^String trash-base-dir
@@ -66,10 +68,12 @@
 
 (defn object-type
   [{^IRODSFileSystemAO cm-ao :fileSystemAO} ^String path]
-  (condp = (.getObjectType (.getObjStat cm-ao path))
-    collection-type :dir
-    dataobject-type :file
-    :none))
+  (try
+    (condp = (.getObjectType (.getObjStat cm-ao path))
+      collection-type :dir
+      dataobject-type :file
+      :none)
+    (catch FileNotFoundException _ :none)))
 
 (defn- ^Boolean jargon-type-check
   [cm check-type ^String path]
@@ -141,23 +145,26 @@
   "Returns status information for a path."
   [{^IRODSFileSystemAO cm-ao :fileSystemAO} ^String path]
   (validate-path-lengths path)
-  (let [objstat (.getObjStat cm-ao path)]
-    (condp = (.getObjectType objstat)
-      collection-type
-      {:id            path
-       :path          path
-       :type          :dir
-       :date-created  (long (.getTime (.getCreatedAt objstat)))
-       :date-modified (long (.getTime (.getModifiedAt objstat)))}
-      dataobject-type
-      {:id            path
-       :path          path
-       :type          :file
-       :file-size     (.getObjSize objstat)
-       :md5           (.getChecksum objstat)
-       :date-created  (long (.getTime (.getCreatedAt objstat)))
-       :date-modified (long (.getTime (.getModifiedAt objstat)))
-       })))
+  (try
+    (let [objstat (.getObjStat cm-ao path)]
+      (condp = (.getObjectType objstat)
+        collection-type
+        {:id            path
+         :path          path
+         :type          :dir
+         :date-created  (long (.getTime (.getCreatedAt objstat)))
+         :date-modified (long (.getTime (.getModifiedAt objstat)))}
+        dataobject-type
+        {:id            path
+         :path          path
+         :type          :file
+         :file-size     (.getObjSize objstat)
+         :md5           (.getChecksum objstat)
+         :date-created  (long (.getTime (.getCreatedAt objstat)))
+         :date-modified (long (.getTime (.getModifiedAt objstat)))
+         }
+        {:type :none}))
+    (catch FileNotFoundException _ {:type :none})))
 
 (defn quota-map
   [^Quota quota-entry]

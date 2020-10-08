@@ -35,20 +35,20 @@
   [{^DataObjectAO data-ao :dataObjectAO
     ^CollectionAO collection-ao :collectionAO
     :as cm}
-   ^String dir-path]
+   ^String dir-path & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths dir-path)
   (mapv avu2map
-    (case (object-type cm dir-path)
+    (case (or known-type (object-type cm dir-path))
       :dir  (.findMetadataValuesForCollection collection-ao dir-path)
       :file (.findMetadataValuesForDataObject data-ao dir-path))))
 
 (defn- get-metadata-by-query
   [{^DataObjectAO data-ao :dataObjectAO
     ^CollectionAO collection-ao :collectionAO
-    :as cm} path query]
+    :as cm} path query & {:keys [known-type] :or {known-type nil}}]
   (validate-path-lengths path)
   (mapv avu2map
-    (case (object-type cm path)
+    (case (or known-type (object-type cm path))
       :dir  (.findMetadataValuesByMetadataQueryForCollection collection-ao query path)
       :file (.findMetadataValuesForDataObjectUsingAVUQuery data-ao query path))))
 
@@ -56,17 +56,17 @@
   "Returns a list of avu maps for a specific attribute associated with dir-path"
   [{^DataObjectAO data-ao :dataObjectAO
     ^CollectionAO collection-ao :collectionAO
-    :as cm} dir-path attr]
+    :as cm} dir-path attr & {:keys [known-type] :or {known-type nil}}]
   (let [query [(AVUQueryElement/instanceForValueQuery
                 AVUQueryElement$AVUQueryPart/ATTRIBUTE
                 AVUQueryOperatorEnum/EQUAL
                 attr)]]
-    (get-metadata-by-query cm dir-path query)))
+    (get-metadata-by-query cm dir-path query :known-type known-type)))
 
 (defn get-attribute-value
   [{^DataObjectAO data-ao :dataObjectAO
     ^CollectionAO collection-ao :collectionAO
-    :as cm} apath attr val]
+    :as cm} apath attr val & {:keys [known-type] :or {known-type nil}}]
   (let [query [(AVUQueryElement/instanceForValueQuery
                 AVUQueryElement$AVUQueryPart/ATTRIBUTE
                 AVUQueryOperatorEnum/EQUAL
@@ -74,12 +74,12 @@
                 AVUQueryElement$AVUQueryPart/VALUE
                 AVUQueryOperatorEnum/EQUAL
                 (str val))]]
-    (get-metadata-by-query cm apath query)))
+    (get-metadata-by-query cm apath query :known-type known-type)))
 
 (defn attribute?
   "Returns true if the path has the associated attribute."
-  [cm dir-path attr]
-  (pos? (count (get-attribute cm dir-path attr))))
+  [cm dir-path attr & {:keys [known-type] :or {known-type nil}}]
+  (pos? (count (get-attribute cm dir-path attr :known-type known-type))))
 
 (defn attr-value?
   "Returns a truthy value if path has metadata that has an attribute of attr and
