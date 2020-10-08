@@ -19,6 +19,7 @@
                  [org.irods.jargon/jargon-ticket "4.0.2.6-RELEASE"
                   :exclusions [[org.slf4j/slf4j-api]
                                [org.slf4j/slf4j-log4j12]]]
+                 [medley "1.3.0"]
                  [slingshot "0.12.2"]
                  [org.cyverse/clojure-commons "2.8.1"]]
   :repositories [["cyverse-de"

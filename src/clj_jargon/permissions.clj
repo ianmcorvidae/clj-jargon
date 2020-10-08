@@ -7,7 +7,8 @@
             [clj-jargon.lazy-listings :as ll]
             [clojure.tools.logging :as log]
             [clojure.string :as string]
-            [clj-jargon.item-info :as item])
+            [clj-jargon.item-info :as item]
+            [medley.core :refer [take-upto]])
   (:import [org.irods.jargon.core.protovalues FilePermissionEnum]
            [org.irods.jargon.core.pub IRODSFileSystemAO
                                       DataObjectAO
@@ -110,13 +111,13 @@
        (mcat #(collection-perms-rs cm % coll-path))
        (map (fn [^IRODSQueryResultRow rs] (.getColumnsAsList rs)))
        (map #(FilePermissionEnum/valueOf (Integer/parseInt (first %))))
-       (take-while escape-hatch)
+       (take-upto escape-hatch)
        (doall)))
 
 (defn- user-collection-perms
   [cm user coll-path]
   (validate-path-lengths coll-path)
-  (set (user-collection-perms* cm user coll-path (constantly true))))
+  (set (user-collection-perms* cm user coll-path (constantly false))))
 
 (defn- user-dataobject-perms*
   [cm user data-path escape-hatch]
@@ -125,13 +126,13 @@
        (mcat #(dataobject-perms-rs cm % data-path))
        (map (fn [^IRODSQueryResultRow rs] (.getColumnsAsList rs)))
        (map #(FilePermissionEnum/valueOf (Integer/parseInt (first %))))
-       (take-while escape-hatch)
+       (take-upto escape-hatch)
        (doall)))
 
 (defn- user-dataobject-perms
   [cm user data-path]
   (validate-path-lengths data-path)
-  (set (user-dataobject-perms* cm user data-path (constantly true))))
+  (set (user-dataobject-perms* cm user data-path (constantly false))))
 
 (defn dataobject-perm-map
   "Uses (user-dataobject-perms) to grab the 'raw' permissions for
@@ -594,34 +595,6 @@
      :write false
      :own false}))
 
-(defn- larger-perm
-  [perm1 perm2]
-  (cond
-    (nil? perm1)
-    perm2
-
-    (nil? perm2)
-    perm1
-
-    (> (perm-order-map perm1) (perm-order-map perm2))
-    perm1
-
-    (> (perm-order-map perm2) (perm-order-map perm1))
-    perm2
-
-    :else
-    perm1))
-
-(defn- check-more-perms?
-  [max-seen]
-  (fn [perm]
-    (log/info perm)
-    (let [old @max-seen]
-      (if
-        (= old own-perm)
-        false
-        (do (swap! max-seen larger-perm perm) true)))))
-
 (defn permission-for
   "Determines a given user's permission for a given collection or data object.
 
@@ -633,12 +606,11 @@
    Returns:
      It returns the aggregated permission."
   [cm user fpath & {:keys [known-type] :or {known-type nil}}]
-  (let [max-seen (atom nil)]
-    (-> (case (or known-type (item/object-type cm fpath))
-          :dir  (set (user-collection-perms* cm user fpath (check-more-perms? max-seen)))
-          :file (set (user-dataobject-perms* cm user fpath (check-more-perms? max-seen))))
-      max-perm
-      fmt-perm)))
+  (-> (case (or known-type (item/object-type cm fpath))
+        :dir  (set (user-collection-perms* cm user fpath (partial = own-perm)))
+        :file (set (user-dataobject-perms* cm user fpath (partial = own-perm))))
+    max-perm
+    fmt-perm))
 
 (defn owns?
   [cm user fpath & {:keys [known-type] :or {known-type nil}}]
