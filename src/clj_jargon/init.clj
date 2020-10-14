@@ -1,5 +1,6 @@
 (ns clj-jargon.init
   (:require [clojure.tools.logging :as log]
+            [otel.otel :as otel]
             [slingshot.slingshot :refer [try+ throw+]]
             [clojure-commons.error-codes :refer [ERR_NOT_A_USER]])
   (:import [java.io InputStream]
@@ -36,9 +37,9 @@
       (mark [readlimit] (.mark istream readlimit))
       (markSupported [] (.markSupported istream))
       (read
-        ([] (.read istream))
-        ([b] (.read istream b))
-        ([b off len] (.read istream b off len)))
+        ([] (otel/with-span [_ ["proxy-input-stream read (1 byte)" {:kind :client}]] (.read istream)))
+        ([b] (otel/with-span [_ ["proxy-input-stream read (buffer)" {:kind :client}]] (.read istream b)))
+        ([b off len] (otel/with-span [_ ["proxy-input-stream read (buf, offset, len)" {:kind :client}]] (.read istream b off len))))
       (reset [] (.reset istream))
       (skip [n] (.skip istream n))
       (close []
@@ -138,6 +139,7 @@
    Throws:
      org.irods.jargon.core.exception.JargonException - This is thrown when if fails to connect to iRODS"
   [cfg client-user]
+  (otel/with-span [s ["create-jargon-context-map" {:kind :internal}]]
   (loop [num-tries 0]
     (let [retval (get-context cfg client-user)
           error? (not (:succeeded retval))
@@ -150,7 +152,7 @@
         error?
         (throw (:exception retval))
 
-        :else (:retval retval)))))
+        :else (:retval retval))))))
 
 (defn create-context-map-or-delay
   "Creates a context map or a delay for one, depending whether lazy? is true"

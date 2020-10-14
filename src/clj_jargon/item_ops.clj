@@ -6,6 +6,7 @@
             [clojure.tools.logging :as log]
             [slingshot.slingshot :refer [throw+]]
             [clojure-commons.error-codes :refer [ERR_NOT_A_FOLDER ERR_NOT_WRITEABLE]]
+            [otel.otel :as otel]
             [clj-jargon.item-info :as info])
   (:import [org.irods.jargon.core.exception CatNoAccessException]
            [org.irods.jargon.core.packinstr DataObjInp$OpenFlags]
@@ -118,18 +119,20 @@
   "Returns an FileOutputStream for a file in iRODS pointed to by 'output-path'. If the file exists,
    it will be truncated."
   [{^IRODSFileFactory file-factory :fileFactory :as cm} output-path]
-  (PackingIrodsOutputStream.
-   (.instanceIRODSFileOutputStream file-factory
-                                   (info/file cm output-path)
-                                   DataObjInp$OpenFlags/WRITE_TRUNCATE)))
+  (otel/with-span [s ["output-stream"]]
+    (PackingIrodsOutputStream.
+     (.instanceIRODSFileOutputStream file-factory
+                                     (info/file cm output-path)
+                                     DataObjInp$OpenFlags/WRITE_TRUNCATE))))
 
 
 (defn ^IRODSFileInputStream input-stream
   "Returns a FileInputStream for a file in iRODS pointed to by 'input-path'"
   [{^IRODSFileFactory file-factory :fileFactory :as cm} input-path]
-  (validate-path-lengths input-path)
-  (PackingIrodsInputStream.
-   (.instanceIRODSFileInputStream file-factory (info/file cm input-path))))
+  (otel/with-span [s ["input-stream"]]
+    (validate-path-lengths input-path)
+    (PackingIrodsInputStream.
+     (.instanceIRODSFileInputStream file-factory (info/file cm input-path)))))
 
 
 (defn read-file
@@ -154,16 +157,17 @@
 
 (defn copy-stream
   [cm ^Closeable istream user dest-path & {:keys [set-owner?] :or {set-owner? true}}]
-  (validate-path-lengths dest-path)
-  (let [^Closeable ostream (output-stream cm dest-path)]
-    (try
-      (io/copy istream ostream)
-      (finally
-        (.close istream)
-        (.close ostream)
-        (when set-owner?
-          (set-owner cm dest-path user))))
-    (info/stat cm dest-path)))
+  (otel/with-span [s ["copy-stream"]]
+    (validate-path-lengths dest-path)
+    (let [^Closeable ostream (output-stream cm dest-path)]
+      (try
+        (io/copy istream ostream)
+        (finally
+          (.close istream)
+          (.close ostream)
+          (when set-owner?
+            (set-owner cm dest-path user :known-type :file))))
+      (info/stat cm dest-path))))
 
 
 (def continue TransferStatusCallbackListener$FileStatusCallbackResponse/CONTINUE)
